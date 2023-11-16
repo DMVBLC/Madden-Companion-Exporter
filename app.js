@@ -28,23 +28,44 @@ app.get('*', (req, res) => {
 
 app.post('/:username/:platform/:leagueId/leagueteams', (req, res) => {
     const db = admin.database();
+    console.info('database object: ', db);
+
     const ref = db.ref();
     let body = '';
+
     req.on('data', chunk => {
         body += chunk.toString();
+        console.info('data event:', body);
     });
+
     req.on('end', () => {
-        const { leagueTeamInfoList: teams } = JSON.parse(body);
-        const {params: { username, leagueId }} = req;
+        try {
+            const { leagueTeamInfoList: teams } = JSON.parse(body);
+            const { params: { username, leagueId } } = req;
+            console.info('end', teams);
 
-        teams.forEach(team => {
-            const teamRef = ref.child(`data/${username}/${leagueId}/teams/${team.teamId}`);
-            teamRef.set(team);
-        });
+            teams.forEach(team => {
+                const teamRefPath = `data/${username}/${leagueId}/teams/${team.teamId}`;
+                console.info('Updating database at path:', teamRefPath);
 
-        res.sendStatus(200);
+                const teamRef = ref.child(teamRefPath);
+                console.info('Team data:', team);
+
+                teamRef.update(team, (error) => {
+                    if (error) {
+                        console.error('Error updating database:', error);
+                    } else {
+                        console.log('Database updated successfully.');
+                    }
+                });
+            });
+
+            res.sendStatus(200);
+        } catch (error) {
+            console.error('Error parsing JSON:', error);
+            res.status(400).send('Invalid JSON format');
+        }
     });
-});
 
 app.post('/:username/:platform/:leagueId/standings', (req, res) => {
     const db = admin.database();
