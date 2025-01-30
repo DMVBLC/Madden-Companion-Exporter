@@ -4,7 +4,7 @@ const bodyParser = require('body-parser');
 
 const app = express();
 
-let cacheRosterData = null;
+/// let cacheRosterData = null;
 
 // TODO: Uncomment out line 13
 // Refer to Picture Example Folder for help for below instructions. (hit the gear for settings, click projecgt settings, then click service accounts)
