@@ -32,9 +32,9 @@ app.get('*', (req, res) => {
     res.send('Madden Companion Exporter');
 });
 
-app.get('/roster/get', (request, response) => {
-    res.send(cacheRosterData);
-})
+/// app.get('/roster/get', (request, response) => {
+///    res.send(cacheRosterData);
+/// })
 
 app.post('/:username/:platform/:leagueId/leagueteams', (req, res) => {
     const db = admin.database();
