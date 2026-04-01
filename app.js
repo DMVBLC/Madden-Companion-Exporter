@@ -174,6 +174,80 @@ app.post(
 );
 
 /* =====================================================
+   🔥 NEW: AGGREGATE FULL SEASON STATS
+===================================================== */
+app.post('/:username/:leagueId/aggregate-season', validateUser, async (req, res) => {
+    try {
+        const db = admin.database();
+        const { username, leagueId } = req.params;
+
+        const statsRef = db.ref(`data/${username}/${leagueId}/stats`);
+        const snapshot = await statsRef.once('value');
+
+        if (!snapshot.exists()) {
+            return res.status(404).send({ error: 'No stats found' });
+        }
+
+        const statsData = snapshot.val();
+        const seasonStats = {};
+
+        Object.keys(statsData).forEach(weekType => {
+            Object.keys(statsData[weekType]).forEach(weekNumber => {
+                const week = statsData[weekType][weekNumber];
+
+                Object.keys(week).forEach(teamId => {
+                    const players = week[teamId]['player-stats'];
+                    if (!players) return;
+
+                    Object.keys(players).forEach(rosterId => {
+                        const stat = players[rosterId];
+
+                        if (!seasonStats[rosterId]) {
+                            seasonStats[rosterId] = {
+                                rosterId,
+                                fullName: stat.fullName || '',
+                                teamId: stat.teamId || teamId,
+                                passingYards: 0,
+                                passingTDs: 0,
+                                interceptions: 0,
+                                rushingYards: 0,
+                                rushingTDs: 0,
+                                receptions: 0,
+                                receivingYards: 0,
+                                receivingTDs: 0
+                            };
+                        }
+
+                        seasonStats[rosterId].passingYards += stat.passingYards || 0;
+                        seasonStats[rosterId].passingTDs += stat.passingTDs || 0;
+                        seasonStats[rosterId].interceptions += stat.interceptions || 0;
+
+                        seasonStats[rosterId].rushingYards += stat.rushingYards || 0;
+                        seasonStats[rosterId].rushingTDs += stat.rushingTDs || 0;
+
+                        seasonStats[rosterId].receptions += stat.receptions || 0;
+                        seasonStats[rosterId].receivingYards += stat.receivingYards || 0;
+                        seasonStats[rosterId].receivingTDs += stat.receivingTDs || 0;
+                    });
+                });
+            });
+        });
+
+        const saveRef = db.ref(`data/${username}/${leagueId}/season-stats`);
+        await saveRef.set(seasonStats);
+
+        res.send({
+            message: 'Season stats aggregated successfully',
+            totalPlayers: Object.keys(seasonStats).length
+        });
+
+    } catch (err) {
+        console.error(err);
+        res.status(500).send({ error: 'Aggregation failed' });
+    }
+});
+
+/* =====================================================
    FREE AGENTS ROSTER
 ===================================================== */
 app.post('/:username/:platform/:leagueId/freeagents/roster', validateUser, (req, res) => {
