@@ -3,90 +3,104 @@ const admin = require('firebase-admin');
 
 const app = express();
 
-// TODO: Uncomment out line 13
-// Refer to Picture Example Folder for help for below instructions. (hit the gear for settings, click projecgt settings, then click service accounts)
-// In your firebase project settings it will give you an option to "create service account".
-// This generates a service account json file. Download it, and put the file in this project. 
-// Enter the path to your service account json file below where it says "REPLACE_WITH_SERVICE_ACCOUNT"
-// If you need more help with this step go here: https://firebase.google.com/docs/admin/setup
+const serviceAccount = require('./madden-companion-project-firebase-adminsdk-u16ts-0a223df9a2.json');
 
-const serviceAccount = require("./madden-companion-project-firebase-adminsdk-u16ts-0a223df9a2.json");
-
-// TODO: Uncomment out line 17-21
-// Enter your database url from firebase where it says <DATABASE_NAME> below.
-// Refer to picture for reference. It's the 2nd property.
 admin.initializeApp({
-   credential: admin.credential.cert(serviceAccount),
-   databaseURL: "https://madden-companion-project-default-rtdb.firebaseio.com"
- });
+    credential: admin.credential.cert(serviceAccount),
+    databaseURL: 'https://madden-companion-project-default-rtdb.firebaseio.com',
+});
 
-app.set('port', (process.env.PORT || 3001));
+app.set('port', process.env.PORT || 3001);
+
+const parseBody = (req) =>
+    new Promise((resolve, reject) => {
+        let body = '';
+
+        req.on('data', chunk => {
+            body += chunk.toString();
+        });
+
+        req.on('end', () => {
+            try {
+                resolve(JSON.parse(body || '{}'));
+            } catch (error) {
+                reject(error);
+            }
+        });
+
+        req.on('error', reject);
+    });
+
+const ensureExportPathExists = async (req, res, next) => {
+    const db = admin.database();
+    const {
+        params: { username },
+    } = req;
+
+    try {
+        const exportPath = `data/${username}`;
+        const snapshot = await db.ref(exportPath).get();
+
+        if (!snapshot.exists()) {
+            res.status(403).send(
+                `Export blocked: endpoint '${username}' must already exist in the database.`,
+            );
+            return;
+        }
+
+        next();
+    } catch (error) {
+        console.error('Failed to verify export endpoint:', error);
+        res.status(500).send('Unable to validate export endpoint.');
+    }
+};
 
 app.get('*', (req, res) => {
     res.send('Madden Companion Exporter');
 });
 
-app.post('/:username/:platform/:leagueId/leagueteams', (req, res) => {
-    const db = admin.database();
-    console.info('database object: ', db);
-
-    const ref = db.ref();
-    let body = '';
-
-    req.on('data', chunk => {
-        body += chunk.toString();
-        console.info('data event:', body);
-    });
-
-    req.on('end', () => {
-        try {
-            const { leagueTeamInfoList: teams } = JSON.parse(body);
-            const { params: { username, leagueId } } = req;
-            console.info('end', teams);
-
-            teams.forEach(team => {
-                const teamRefPath = `data/${username}/${leagueId}/teams/${team.teamId}`;
-                console.info('Updating database at path:', teamRefPath);
-
-                const teamRef = ref.child(teamRefPath);
-                console.info('Team data:', team);
-
-                teamRef.update(team, (error) => {
-                    if (error) {
-                        console.error('Error updating database:', error);
-                    } else {
-                        console.log('Database updated successfully.');
-                    }
-                });
-            });
-
-            res.sendStatus(200);
-        } catch (error) {
-            console.error('Error parsing JSON:', error);
-            res.status(400).send('Invalid JSON format');
-        }
-    });
-
-app.post('/:username/:platform/:leagueId/standings', (req, res) => {
+app.post('/:username/:platform/:leagueId/leagueteams', ensureExportPathExists, async (req, res) => {
     const db = admin.database();
     const ref = db.ref();
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk.toString();
-    });
-    req.on('end', () => {
-        const { teamStandingInfoList: teams } = JSON.parse(body);
-        const {params: { username, leagueId }} = req;
+
+    try {
+        const { leagueTeamInfoList: teams = [] } = await parseBody(req);
+        const {
+            params: { username, leagueId },
+        } = req;
 
         teams.forEach(team => {
-            const teamRef = ref.child(
-                `data/${username}/${leagueId}/teams/${team.teamId}`
-            );
+            const teamRefPath = `data/${username}/${leagueId}/teams/${team.teamId}`;
+            ref.child(teamRefPath).update(team);
+        });
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Error parsing JSON:', error);
+        res.status(400).send('Invalid JSON format');
+    }
+});
+
+app.post('/:username/:platform/:leagueId/standings', ensureExportPathExists, async (req, res) => {
+    const db = admin.database();
+    const ref = db.ref();
+
+    try {
+        const { teamStandingInfoList: teams = [] } = await parseBody(req);
+        const {
+            params: { username, leagueId },
+        } = req;
+
+        teams.forEach(team => {
+            const teamRef = ref.child(`data/${username}/${leagueId}/teams/${team.teamId}`);
             teamRef.set(team);
         });
 
         res.sendStatus(200);
-    });
+    } catch (error) {
+        console.error('Error parsing JSON:', error);
+        res.status(400).send('Invalid JSON format');
+    }
 });
 
 function capitalizeFirstLetter(string) {
@@ -95,99 +109,118 @@ function capitalizeFirstLetter(string) {
 
 app.post(
     '/:username/:platform/:leagueId/week/:weekType/:weekNumber/:dataType',
-    (req, res) => {
+    ensureExportPathExists,
+    async (req, res) => {
         const db = admin.database();
         const ref = db.ref();
         const {
             params: { username, leagueId, weekType, weekNumber, dataType },
         } = req;
         const basePath = `data/${username}/${leagueId}/`;
-        // "defense", "kicking", "passing", "punting", "receiving", "rushing"
         const statsPath = `${basePath}stats`;
-        let body = '';
-        req.on('data', chunk => {
-            body += chunk.toString();
-        });
-        req.on('end', () => {
+
+        try {
+            const payload = await parseBody(req);
+
             switch (dataType) {
                 case 'schedules': {
-                    const weekRef = ref.child(
-                        `${basePath}schedules/${weekType}/${weekNumber}`
-                    );
-                    const { gameScheduleInfoList: schedules } = JSON.parse(body);
+                    const weekRef = ref.child(`${basePath}schedules/${weekType}/${weekNumber}`);
+                    const { gameScheduleInfoList: schedules = [] } = payload;
                     weekRef.set(schedules);
                     break;
                 }
                 case 'teamstats': {
-                    const { teamStatInfoList: teamStats } = JSON.parse(body);
+                    const { teamStatInfoList: teamStats = [] } = payload;
                     teamStats.forEach(stat => {
                         const weekRef = ref.child(
-                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/team-stats`
+                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/team-stats`,
                         );
                         weekRef.set(stat);
                     });
                     break;
                 }
                 case 'defense': {
-                    const { playerDefensiveStatInfoList: defensiveStats } = JSON.parse(body);
+                    const { playerDefensiveStatInfoList: defensiveStats = [] } = payload;
                     defensiveStats.forEach(stat => {
                         const weekRef = ref.child(
-                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
+                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`,
                         );
                         weekRef.set(stat);
                     });
                     break;
                 }
                 default: {
-    const property = `player${capitalizeFirstLetter(dataType)}StatInfoList`;
+                    const property = `player${capitalizeFirstLetter(dataType)}StatInfoList`;
+                    const stats = payload[property];
 
-    try {
-        const stats = JSON.parse(body)[property];
-
-        if (Array.isArray(stats)) {
-            stats.forEach(stat => {
-                const weekRef = ref.child(
-                    `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
-                );
-                weekRef.set(stat);
-            });
-        } else {
-            console.error('Expected property not found or is not an array:', property);
-            // Handle the error accordingly
-        }
-    } catch (error) {
-        console.error('Error parsing JSON or accessing property:', error);
-        // Handle the error accordingly
-    }
-    break;
-}
-
+                    if (Array.isArray(stats)) {
+                        stats.forEach(stat => {
+                            const weekRef = ref.child(
+                                `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`,
+                            );
+                            weekRef.set(stat);
+                        });
+                    } else {
+                        console.error('Expected property not found or is not an array:', property);
+                    }
+                }
+            }
 
             res.sendStatus(200);
+        } catch (error) {
+            console.error('Error parsing JSON or accessing property:', error);
+            res.status(400).send('Invalid JSON format');
+        }
+    },
+);
+
+app.post('/:username/:platform/:leagueId/freeagents/roster', ensureExportPathExists, async (req, res) => {
+    const db = admin.database();
+    const ref = db.ref();
+    const {
+        params: { username, leagueId },
+    } = req;
+
+    try {
+        const { rosterInfoList = [] } = await parseBody(req);
+        const dataRef = ref.child(`data/${username}/${leagueId}/freeagents`);
+        const players = {};
+
+        rosterInfoList.forEach(player => {
+            players[player.rosterId] = player;
         });
+
+        dataRef.set(players, error => {
+            if (error) {
+                console.log('Data could not be saved.' + error);
+            } else {
+                console.log('Data saved successfully.');
+            }
+        });
+
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Error parsing JSON:', error);
+        res.status(400).send('Invalid JSON format');
     }
-);
+});
 
-// ROSTERS
-app.post('/:username/:platform/:leagueId/freeagents/roster', (req, res) => {
+app.post('/:username/:platform/:leagueId/team/:teamId/roster', ensureExportPathExists, async (req, res) => {
     const db = admin.database();
     const ref = db.ref();
     const {
-        params: { username, leagueId, teamId }
+        params: { username, leagueId, teamId },
     } = req;
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk.toString();
-    });
-    req.on('end', () => {
-        const { rosterInfoList } = JSON.parse(body);
-        const dataRef = ref.child(
-            `data/${username}/${leagueId}/freeagents`
-        );
+
+    try {
+        const { rosterInfoList = [] } = await parseBody(req);
+        const dataRef = ref.child(`data/${username}/${leagueId}/teams/${teamId}/roster`);
         const players = {};
+
         rosterInfoList.forEach(player => {
             players[player.rosterId] = player;
         });
+
         dataRef.set(players, error => {
             if (error) {
                 console.log('Data could not be saved.' + error);
@@ -195,40 +228,12 @@ app.post('/:username/:platform/:leagueId/freeagents/roster', (req, res) => {
                 console.log('Data saved successfully.');
             }
         });
+
         res.sendStatus(200);
-    });    
+    } catch (error) {
+        console.error('Error parsing JSON:', error);
+        res.status(400).send('Invalid JSON format');
+    }
 });
 
-app.post('/:username/:platform/:leagueId/team/:teamId/roster', (req, res) => {
-    const db = admin.database();
-    const ref = db.ref();
-    const {
-        params: { username, leagueId, teamId }
-    } = req;
-    let body = '';
-    req.on('data', chunk => {
-        body += chunk.toString();
-    });
-    req.on('end', () => {
-        const { rosterInfoList } = JSON.parse(body);
-        const dataRef = ref.child(
-            `data/${username}/${leagueId}/teams/${teamId}/roster`
-        );
-        const players = {};
-        rosterInfoList.forEach(player => {
-            players[player.rosterId] = player;
-        });
-        dataRef.set(players, error => {
-            if (error) {
-                console.log('Data could not be saved.' + error);
-            } else {
-                console.log('Data saved successfully.');
-            }
-        });
-        res.sendStatus(200);
-    });
-});
-
-app.listen(app.get('port'), () =>
-    console.log('Madden Data is running on port', app.get('port'))
-);
+app.listen(app.get('port'), () => console.log('Madden Data is running on port', app.get('port')));
