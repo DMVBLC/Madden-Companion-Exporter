@@ -16,6 +16,14 @@ app.set('port', (process.env.PORT || 3001));
 app.use(bodyParser.json({ limit: '50mb' }));
 app.use(bodyParser.urlencoded({ limit: '50mb', extended: true }));
 
+function markLeagueExport(ref, username, leagueId) {
+    return ref.child(`data/${username}/${leagueId}/lastExportedAt`).set(Date.now());
+}
+
+function markRosterExport(ref, username, leagueId) {
+    return ref.child(`data/${username}/${leagueId}/rosterLastUpdated`).set(Date.now());
+}
+
 /* =====================================================
    ✅ MIDDLEWARE: CHECK IF USER EXISTS
 ===================================================== */
@@ -67,6 +75,7 @@ app.post('/:username/:platform/:leagueId/leagueteams', validateUser, (req, res) 
         teamRef.update(team);
     });
 
+    markLeagueExport(ref, username, leagueId);
     res.sendStatus(200);
 });
 
@@ -89,6 +98,7 @@ app.post('/:username/:platform/:leagueId/standings', validateUser, (req, res) =>
         teamRef.update(team);
     });
 
+    markLeagueExport(ref, username, leagueId);
     res.sendStatus(200);
 });
 
@@ -169,6 +179,7 @@ app.post(
             }
         }
 
+        markLeagueExport(ref, username, leagueId);
         res.sendStatus(200);
     }
 );
@@ -210,6 +221,7 @@ app.post('/:username/:platform/:leagueId/freeagents/roster', validateUser, (req,
             }
         });
 
+        markRosterExport(ref, username, leagueId);
         res.sendStatus(200);
     });
 });
@@ -243,6 +255,7 @@ app.post('/:username/:platform/:leagueId/team/:teamId/roster', validateUser, (re
         }
     });
 
+    markRosterExport(ref, username, leagueId);
     res.sendStatus(200);
 });
 
