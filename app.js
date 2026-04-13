@@ -120,6 +120,14 @@ app.post(
             params: { username, leagueId, weekType, weekNumber, dataType },
         } = req;
 
+        console.log('Weekly export request:', {
+            username,
+            leagueId,
+            weekType,
+            weekNumber,
+            dataType
+        });
+
         const basePath = `data/${username}/${leagueId}/`;
         const statsPath = `${basePath}stats`;
 
@@ -266,3 +274,4 @@ app.post('/:username/:platform/:leagueId/team/:teamId/roster', validateUser, (re
 app.listen(app.get('port'), () =>
     console.log('Madden Data is running on port', app.get('port'))
 );
+
