@@ -113,74 +113,107 @@ app.post(
     '/:username/:platform/:leagueId/week/:weekType/:weekNumber/:dataType',
     validateUser,
     (req, res) => {
-        const db = admin.database();
-        const ref = db.ref();
+        try {
+            const db = admin.database();
+            const ref = db.ref();
 
-        const {
-            params: { username, leagueId, weekType, weekNumber, dataType },
-        } = req;
+            const {
+                params: { username, leagueId, weekType, weekNumber, dataType },
+            } = req;
 
-        const basePath = `data/${username}/${leagueId}/`;
-        const statsPath = `${basePath}stats`;
+            const basePath = `data/${username}/${leagueId}/`;
+            const statsPath = `${basePath}stats`;
 
-        switch (dataType) {
-            case 'schedules': {
-                const weekRef = ref.child(
-                    `${basePath}schedules/${weekType}/${weekNumber}`
-                );
-                const {
-                    body: { gameScheduleInfoList: schedules },
-                } = req;
-
-                weekRef.update(schedules);
-                break;
-            }
-
-            case 'teamstats': {
-                const {
-                    body: { teamStatInfoList: teamStats },
-                } = req;
-
-                teamStats.forEach(stat => {
+            switch (dataType) {
+                case 'schedules': {
                     const weekRef = ref.child(
-                        `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/team-stats`
+                        `${basePath}schedules/${weekType}/${weekNumber}`
                     );
-                    weekRef.update(stat);
-                });
-                break;
+                    const {
+                        body: { gameScheduleInfoList: schedules },
+                    } = req;
+
+                    if (!Array.isArray(schedules) && (typeof schedules !== 'object' || schedules === null)) {
+                        return res.status(400).send({
+                            error: 'gameScheduleInfoList is missing or invalid',
+                        });
+                    }
+
+                    weekRef.update(schedules);
+                    break;
+                }
+
+                case 'teamstats':
+                case 'team': {
+                    const {
+                        body: { teamStatInfoList: teamStats },
+                    } = req;
+
+                    if (!Array.isArray(teamStats)) {
+                        return res.status(400).send({
+                            error: 'teamStatInfoList is missing or invalid',
+                        });
+                    }
+
+                    teamStats.forEach(stat => {
+                        const weekRef = ref.child(
+                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/team-stats`
+                        );
+                        weekRef.update(stat);
+                    });
+                    break;
+                }
+
+                case 'defense': {
+                    const {
+                        body: { playerDefensiveStatInfoList: defensiveStats },
+                    } = req;
+
+                    if (!Array.isArray(defensiveStats)) {
+                        return res.status(400).send({
+                            error: 'playerDefensiveStatInfoList is missing or invalid',
+                        });
+                    }
+
+                    defensiveStats.forEach(stat => {
+                        const weekRef = ref.child(
+                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
+                        );
+                        weekRef.update(stat);
+                    });
+                    break;
+                }
+
+                default: {
+                    const { body } = req;
+                    const property = `player${capitalizeFirstLetter(dataType)}StatInfoList`;
+                    const stats = body[property];
+
+                    if (!Array.isArray(stats)) {
+                        return res.status(400).send({
+                            error: `${property} is missing or invalid`,
+                        });
+                    }
+
+                    stats.forEach(stat => {
+                        const weekRef = ref.child(
+                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
+                        );
+                        weekRef.update(stat);
+                    });
+                    break;
+                }
             }
 
-            case 'defense': {
-                const {
-                    body: { playerDefensiveStatInfoList: defensiveStats },
-                } = req;
-
-                defensiveStats.forEach(stat => {
-                    const weekRef = ref.child(
-                        `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
-                    );
-                    weekRef.update(stat);
-                });
-                break;
-            }
-
-            default: {
-                const { body } = req;
-                const property = `player${capitalizeFirstLetter(dataType)}StatInfoList`;
-                const stats = body[property];
-
-                stats.forEach(stat => {
-                    const weekRef = ref.child(
-                        `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
-                    );
-                    weekRef.update(stat);
-                });
-                break;
-            }
+            markLeagueExport(ref, username, leagueId);
+            res.sendStatus(200);
+        } catch (error) {
+            console.error('Weekly export failed:', error);
+            res.status(500).send({
+                error: 'Weekly export failed',
+                details: error.message,
+            });
         }
-
-        markLeagueExport(ref, username, leagueId);
-        res.sendStatus(200);
     }
 );
 
