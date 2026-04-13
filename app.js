@@ -132,7 +132,7 @@ app.post(
                     body: { gameScheduleInfoList: schedules },
                 } = req;
 
-                weekRef.update(schedules);
+                weekRef.set(schedules);
                 break;
             }
 
