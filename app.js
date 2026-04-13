@@ -59,47 +59,67 @@ app.get('*', (req, res) => {
 /* =====================================================
    LEAGUE TEAMS
 ===================================================== */
-app.post('/:username/:platform/:leagueId/leagueteams', validateUser, (req, res) => {
-    const db = admin.database();
-    const ref = db.ref();
+app.post('/:username/:platform/:leagueId/leagueteams', validateUser, async (req, res) => {
+    try {
+        const db = admin.database();
+        const ref = db.ref();
 
-    const {
-        params: { username, leagueId },
-        body: { leagueTeamInfoList: teams },
-    } = req;
+        const {
+            params: { username, leagueId },
+            body: { leagueTeamInfoList: teams },
+        } = req;
 
-    teams.forEach(team => {
-        const teamRef = ref.child(
-            `data/${username}/${leagueId}/teams/${team.teamId}`
+        await Promise.all(
+            teams.map(team => {
+                const teamRef = ref.child(
+                    `data/${username}/${leagueId}/teams/${team.teamId}`
+                );
+                return teamRef.update(team);
+            })
         );
-        teamRef.update(team);
-    });
 
-    markLeagueExport(ref, username, leagueId);
-    res.sendStatus(200);
+        await markLeagueExport(ref, username, leagueId);
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('League teams export failed:', error);
+        res.status(500).send({
+            error: 'League teams export failed',
+            details: error.message,
+        });
+    }
 });
 
 /* =====================================================
    STANDINGS
 ===================================================== */
-app.post('/:username/:platform/:leagueId/standings', validateUser, (req, res) => {
-    const db = admin.database();
-    const ref = db.ref();
+app.post('/:username/:platform/:leagueId/standings', validateUser, async (req, res) => {
+    try {
+        const db = admin.database();
+        const ref = db.ref();
 
-    const {
-        params: { username, leagueId },
-        body: { teamStandingInfoList: teams },
-    } = req;
+        const {
+            params: { username, leagueId },
+            body: { teamStandingInfoList: teams },
+        } = req;
 
-    teams.forEach(team => {
-        const teamRef = ref.child(
-            `data/${username}/${leagueId}/teams/${team.teamId}`
+        await Promise.all(
+            teams.map(team => {
+                const teamRef = ref.child(
+                    `data/${username}/${leagueId}/teams/${team.teamId}`
+                );
+                return teamRef.update(team);
+            })
         );
-        teamRef.update(team);
-    });
 
-    markLeagueExport(ref, username, leagueId);
-    res.sendStatus(200);
+        await markLeagueExport(ref, username, leagueId);
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Standings export failed:', error);
+        res.status(500).send({
+            error: 'Standings export failed',
+            details: error.message,
+        });
+    }
 });
 
 /* =====================================================
@@ -112,7 +132,7 @@ function capitalizeFirstLetter(string) {
 app.post(
     '/:username/:platform/:leagueId/week/:weekType/:weekNumber/:dataType',
     validateUser,
-    (req, res) => {
+    async (req, res) => {
         try {
             const db = admin.database();
             const ref = db.ref();
@@ -139,7 +159,7 @@ app.post(
                         });
                     }
 
-                    weekRef.update(schedules);
+                    await weekRef.update(schedules);
                     break;
                 }
 
@@ -155,12 +175,14 @@ app.post(
                         });
                     }
 
-                    teamStats.forEach(stat => {
-                        const weekRef = ref.child(
-                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/team-stats`
-                        );
-                        weekRef.update(stat);
-                    });
+                    await Promise.all(
+                        teamStats.map(stat => {
+                            const weekRef = ref.child(
+                                `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/team-stats`
+                            );
+                            return weekRef.update(stat);
+                        })
+                    );
                     break;
                 }
 
@@ -175,12 +197,14 @@ app.post(
                         });
                     }
 
-                    defensiveStats.forEach(stat => {
-                        const weekRef = ref.child(
-                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
-                        );
-                        weekRef.update(stat);
-                    });
+                    await Promise.all(
+                        defensiveStats.map(stat => {
+                            const weekRef = ref.child(
+                                `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
+                            );
+                            return weekRef.update(stat);
+                        })
+                    );
                     break;
                 }
 
@@ -195,17 +219,19 @@ app.post(
                         });
                     }
 
-                    stats.forEach(stat => {
-                        const weekRef = ref.child(
-                            `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
-                        );
-                        weekRef.update(stat);
-                    });
+                    await Promise.all(
+                        stats.map(stat => {
+                            const weekRef = ref.child(
+                                `${statsPath}/${weekType}/${weekNumber}/${stat.teamId}/player-stats/${stat.rosterId}`
+                            );
+                            return weekRef.update(stat);
+                        })
+                    );
                     break;
                 }
             }
 
-            markLeagueExport(ref, username, leagueId);
+            await markLeagueExport(ref, username, leagueId);
             res.sendStatus(200);
         } catch (error) {
             console.error('Weekly export failed:', error);
@@ -234,11 +260,47 @@ app.post('/:username/:platform/:leagueId/freeagents/roster', validateUser, (req,
         body += chunk.toString();
     });
 
-    req.on('end', () => {
-        const { rosterInfoList } = JSON.parse(body);
+    req.on('end', async () => {
+        try {
+            const { rosterInfoList } = JSON.parse(body);
+
+            const dataRef = ref.child(
+                `data/${username}/${leagueId}/freeagents`
+            );
+
+            const players = {};
+            rosterInfoList.forEach(player => {
+                players[player.rosterId] = player;
+            });
+
+            await dataRef.set(players);
+            await markRosterExport(ref, username, leagueId);
+            res.sendStatus(200);
+        } catch (error) {
+            console.error('Free agents roster export failed:', error);
+            res.status(500).send({
+                error: 'Free agents roster export failed',
+                details: error.message,
+            });
+        }
+    });
+});
+
+/* =====================================================
+   TEAM ROSTER
+===================================================== */
+app.post('/:username/:platform/:leagueId/team/:teamId/roster', validateUser, async (req, res) => {
+    try {
+        const db = admin.database();
+        const ref = db.ref();
+
+        const {
+            params: { username, leagueId, teamId },
+            body: { rosterInfoList },
+        } = req;
 
         const dataRef = ref.child(
-            `data/${username}/${leagueId}/freeagents`
+            `data/${username}/${leagueId}/teams/${teamId}/roster`
         );
 
         const players = {};
@@ -246,51 +308,24 @@ app.post('/:username/:platform/:leagueId/freeagents/roster', validateUser, (req,
             players[player.rosterId] = player;
         });
 
-        dataRef.set(players, error => {
-            if (error) {
-                console.log('Data could not be saved.' + error);
-            } else {
-                console.log('Data saved successfully.');
-            }
-        });
-
-        markRosterExport(ref, username, leagueId);
+        await dataRef.set(players);
+        await markRosterExport(ref, username, leagueId);
         res.sendStatus(200);
-    });
+    } catch (error) {
+        console.error('Team roster export failed:', error);
+        res.status(500).send({
+            error: 'Team roster export failed',
+            details: error.message,
+        });
+    }
 });
 
 /* =====================================================
-   TEAM ROSTER
+   START SERVER
 ===================================================== */
-app.post('/:username/:platform/:leagueId/team/:teamId/roster', validateUser, (req, res) => {
-    const db = admin.database();
-    const ref = db.ref();
-
-    const {
-        params: { username, leagueId, teamId },
-        body: { rosterInfoList },
-    } = req;
-
-    const dataRef = ref.child(
-        `data/${username}/${leagueId}/teams/${teamId}/roster`
-    );
-
-    const players = {};
-    rosterInfoList.forEach(player => {
-        players[player.rosterId] = player;
-    });
-
-    dataRef.set(players, error => {
-        if (error) {
-            console.log('Data could not be saved.' + error);
-        } else {
-            console.log('Data saved successfully.');
-        }
-    });
-
-    markRosterExport(ref, username, leagueId);
-    res.sendStatus(200);
-});
+app.listen(app.get('port'), () =>
+    console.log('Madden Data is running on port', app.get('port'))
+);
 
 /* =====================================================
    START SERVER
